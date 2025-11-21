@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Review & Approval</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 15px; }
+    h2 { margin-top: 0; margin-bottom: 10px; }
+    textarea {
+      width: 100%; height: 120px; margin-top: 8px;
+      border: 1px solid #ccc; border-radius: 4px; padding: 8px;
+    }
+    .buttons { margin-top: 15px; display: flex; gap: 10px; }
+    button { padding: 8px 14px; cursor: pointer; border-radius: 4px; border: none; color: #fff; }
+    .approve { background: #28a745; }
+    .reject { background: #dc3545; }
+    .close { background: #6c757d; margin-left: auto; }
+    #status { margin-top: 12px; font-size: 13px; color: #333; }
+  </style>
+</head>
+<body>
+
+<h2>Approve / Reject Preview</h2>
+<div id="page-info">Loading…</div>
+
+<label>Reviewer Comments:</label>
+<textarea id="comments" placeholder="Add optional comments…"></textarea>
+
+<div class="buttons">
+  <button class="approve" id="approve">Approve</button>
+  <button class="reject" id="reject">Reject</button>
+  <button class="close" id="close">Close</button>
+</div>
+
+<div id="status"></div>
+
+<script>
+  function closePalette() {
+    window.parent.postMessage({ type: "closePalette" }, "*");
+  }
+
+  // Wait for Sidekick to send state
+  function loadSidekickState() {
+    return new Promise((resolve) => {
+      window.addEventListener("message", function handler(e) {
+        if (e.data && e.data.sidekick) {
+          window.removeEventListener("message", handler);
+          resolve(e.data.sidekick);
+        }
+      });
+
+      window.parent.postMessage({ type: "getState" }, "*");
+    });
+  }
+
+  async function init() {
+    const state = await loadSidekickState();
+    const source = state.location;
+    window._edsPagePath = source;
+
+    document.getElementById("page-info").textContent = "Page: " + source;
+
+    // Handle Approve
+    document.getElementById("approve").onclick = () => {
+      const comments = document.getElementById("comments").value;
+
+      let data = JSON.parse(localStorage.getItem("eds-approval-state") || "{}");
+      data[source] = { status: "approved", comments };
+      localStorage.setItem("eds-approval-state", JSON.stringify(data));
+
+      document.getElementById("status").textContent = "Approved!";
+      setTimeout(closePalette, 1200);
+    };
+
+    // Handle Reject
+    document.getElementById("reject").onclick = () => {
+      const comments = document.getElementById("comments").value;
+
+      let data = JSON.parse(localStorage.getItem("eds-approval-state") || "{}");
+      data[source] = { status: "rejected", comments };
+      localStorage.setItem("eds-approval-state", JSON.stringify(data));
+
+      document.getElementById("status").textContent = "Rejected!";
+      setTimeout(closePalette, 1200);
+    };
+  }
+
+  document.getElementById("close").onclick = closePalette;
+
+  init();
+</script>
+
+</body>
+</html>
