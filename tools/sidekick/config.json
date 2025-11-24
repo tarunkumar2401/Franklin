@@ -1,5 +1,5 @@
 {
-  "project": "Geeks Edge Deliver Services",
+  "project": "Edge Deliver Services",
   "plugins": [
     {
       "id": "asset-library",
@@ -35,6 +35,14 @@
       "environments": ["edit"],
       "url": "/tools/sidekick/library.html",
       "includePaths": ["**.docx**"]
+    },
+    {
+      "id": "role-loader",
+      "title": "Role Loader",
+      "url": "/tools/sidekick/role-loader.html",
+      "isPalette": true,
+      "passConfig": true,
+      "environments": ["edit", "dev", "preview", "live"]
     }
   ]
 }
