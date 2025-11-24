@@ -1,20 +1,27 @@
 (function () {
-  const STORAGE_KEY = "eds-approval-state";
+  var STORAGE_KEY = 'eds-approval-state';
 
-  // Read/write workflow state (pure localStorage)
   function getState() {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    var raw = localStorage.getItem(STORAGE_KEY) || '{}';
+    return JSON.parse(raw);
   }
 
-  function setStatus(path, status, comments = "") {
-    const s = getState();
-    s[path] = { status, comments, updated: new Date().toISOString() };
+  function setStatus(path, status, comments) {
+    var s = getState();
+    s[path] = {
+      status: status,
+      comments: comments || '',
+      updated: new Date().toISOString()
+    };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
   }
 
   function getStatus(path) {
-    const s = getState();
-    return s[path] || { status: "draft" };
+    var s = getState();
+    if (s[path]) {
+      return s[path];
+    }
+    return { status: 'draft' };
   }
 
   function getPagePath() {
@@ -22,87 +29,82 @@
   }
 
   function openEditorNotice() {
-    alert("EDIT MODE:\n\nOpen your Google Doc / Word file manually.\n(This is a pure JS workflow; no backend available.)");
+    // eslint-disable-next-line no-alert
+    alert('EDIT MODE:\n\nOpen your Google Doc / Word file manually.\n(This is a pure JS workflow; no backend available.)');
   }
 
   function openPreview() {
-    const previewUrl = window.location.href
-      .replace(".live", ".page")
-      .replace(".html", ".html");
-    window.open(previewUrl, "_blank");
+    var url = window.location.href.replace('.live', '.page');
+    window.open(url, '_blank');
   }
 
   function publishToLive() {
-    const liveUrl = window.location.href
-      .replace(".page", ".live")
-      .replace(".html", ".html");
-    window.open(liveUrl, "_blank");
+    var url = window.location.href.replace('.page', '.live');
+    window.open(url, '_blank');
   }
 
-  // Main Sidekick event registration
+  function onSidekickReady(root) {
+    root.addEventListener('custom:eds-edit', function () {
+      openEditorNotice();
+    });
+
+    root.addEventListener('custom:eds-preview', function () {
+      openPreview();
+    });
+
+    root.addEventListener('custom:eds-publish-live', function () {
+      var path = getPagePath();
+      var state = getStatus(path);
+      if (state.status !== 'approved') {
+        // eslint-disable-next-line no-alert
+        alert('Cannot publish.\nPreview must be APPROVED first.');
+        return;
+      }
+      publishToLive();
+    });
+
+    window.addEventListener('message', function (e) {
+      if (e.data && e.data.type === 'getState') {
+        window.parent.postMessage(
+          {
+            sidekick: {
+              location: getPagePath(),
+              status: getStatus(getPagePath())
+            }
+          },
+          '*'
+        );
+      }
+    });
+  }
+
   function registerSidekick() {
-    const sk = document.querySelector("aem-sidekick");
+    var sk = document.querySelector('aem-sidekick');
 
-    const attach = (root) => {
-      // Edit
-      root.addEventListener("custom:eds-edit", () => {
-        openEditorNotice();
-      });
-
-      // Preview
-      root.addEventListener("custom:eds-preview", () => {
-        openPreview();
-      });
-
-      // Publish live (approval required)
-      root.addEventListener("custom:eds-publish-live", () => {
-        const path = getPagePath();
-        const st = getStatus(path);
-
-        if (st.status !== "approved") {
-          alert("Cannot publish.\nPreview must be APPROVED first.");
-          return;
-        }
-
-        publishToLive();
-      });
-
-      // Palette requests SK state
-      window.addEventListener("message", (e) => {
-        if (e.data?.type === "getState") {
-          window.parent.postMessage(
-            {
-              sidekick: {
-                location: getPagePath(),
-                status: getStatus(getPagePath())
-              }
-            },
-            "*"
-          );
-        }
-      });
-    };
-
-    if (sk) attach(sk);
-    else {
+    if (sk) {
+      onSidekickReady(sk);
+    } else {
       document.addEventListener(
-        "sidekick-ready",
-        () => {
-          const sk2 = document.querySelector("aem-sidekick");
-          if (sk2) attach(sk2);
+        'sidekick-ready',
+        function () {
+          var sk2 = document.querySelector('aem-sidekick');
+          if (sk2) {
+            onSidekickReady(sk2);
+          }
         },
         { once: true }
       );
     }
   }
 
-  // Initialize
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", registerSidekick);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', registerSidekick);
   } else {
     registerSidekick();
   }
 
-  // expose for palette (optional)
-  window.__EDS_WORKFLOW__ = { setStatus, getStatus };
-})();
+  window.EDS_WORKFLOW = {
+    setStatus: setStatus,
+    getStatus: getStatus
+  };
+}());
