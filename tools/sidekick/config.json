@@ -37,12 +37,13 @@
       "includePaths": ["**.docx**"]
     },
     {
-      "id": "role-loader",
-      "title": "Role Loader",
+      "id": "role-init",
+      "title": "Role Engine",
       "url": "/tools/sidekick/role-loader.html",
       "isPalette": true,
       "passConfig": true,
-      "environments": ["edit", "dev", "preview", "live"]
+      "environments": ["edit", "dev", "preview", "live"],
+      "paletteRect": "top:0;left:0;width:1px;height:1px"
     }
   ]
 }
