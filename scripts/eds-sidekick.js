@@ -1,12 +1,4 @@
-/* global MutationObserver */
-
 (() => {
-  'use strict';
-
-  // =====================================================
-  // CONSTANTS
-  // =====================================================
-
   const STORAGE_KEY = 'eds-approval-state';
   const ROLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1CjPAUMvN7TQhPjKw1Dom2kT7iwVPS2YNtEYVdv2-Y30/export?format=csv';
 
@@ -16,10 +8,9 @@
     publisher: '#28a745',
   };
 
-  // =====================================================
-  // UTILITIES
-  // =====================================================
-
+  // ----------------------------------------------------
+  // Deep shadow DOM query
+  // ----------------------------------------------------
   const deepQuery = (root, selector) => {
     const matches = [];
 
@@ -29,9 +20,11 @@
       }
 
       try {
-        node.querySelectorAll(selector).forEach((el) => matches.push(el));
+        node.querySelectorAll(selector).forEach((el) => {
+          matches.push(el);
+        });
       } catch {
-        /* ignore invalid selectors */
+        // ignore invalid selectors
       }
 
       node.childNodes.forEach((child) => {
@@ -50,6 +43,9 @@
     return matches;
   };
 
+  // ----------------------------------------------------
+  // CSV helpers / role sheet
+  // ----------------------------------------------------
   const csvToJson = (csv) => {
     const lines = csv.trim().split('\n');
     const headers = lines[0].split(',').map((h) => h.trim());
@@ -68,54 +64,101 @@
     try {
       const csv = await fetch(ROLE_SHEET_URL).then((r) => r.text());
       const rows = csvToJson(csv);
-      const match = rows.find((r) => r.email?.toLowerCase() === email.toLowerCase());
-      return match?.role || 'author';
+      const match = rows.find((r) => r.email && r.email.toLowerCase() === email.toLowerCase());
+      return match && match.role ? match.role : 'author';
     } catch {
       return 'author';
     }
   };
 
+  // ----------------------------------------------------
+  // Read user email from Sidekick DOM (B1)
+  // ----------------------------------------------------
   const getSidekickUserEmail = (sk) => {
     const root = sk.shadowRoot;
     if (!root) {
       return null;
     }
 
-    const items = deepQuery(root, 'sk-menu-item.user');
-    if (!items.length) {
+    const userItems = deepQuery(root, 'sk-menu-item.user');
+    if (!userItems.length) {
       return null;
     }
 
-    const userItem = items[0];
+    const userItem = userItems[0];
     const sr = userItem.shadowRoot;
     if (!sr) {
       return null;
     }
 
     const desc = sr.querySelector('span[slot="description"]');
-    const text = desc?.textContent?.trim();
-    return text && text.includes('@') ? text : null;
+    const text = desc && desc.textContent ? desc.textContent.trim() : '';
+    if (text && text.indexOf('@') !== -1) {
+      return text;
+    }
+
+    return null;
   };
 
-  // =====================================================
-  // APPROVAL WORKFLOW (localStorage only)
-  // =====================================================
+  // ----------------------------------------------------
+  // Disable Sidekick UI when not signed in (A2)
+  // ----------------------------------------------------
+  const disableSidekickUi = (sk) => {
+    const root = sk.shadowRoot;
+    if (!root) {
+      return;
+    }
 
+    const interactiveSelectors = [
+      'sk-action-button',
+      'sk-menu-item',
+      'button',
+      'sp-switch',
+      'sk-action-menu',
+    ];
+
+    interactiveSelectors.forEach((selector) => {
+      deepQuery(root, selector).forEach((el) => {
+        const element = el;
+        // keep login-button clickable so user can sign in
+        if (element.closest && element.closest('login-button')) {
+          return;
+        }
+        element.style.pointerEvents = 'none';
+        element.style.opacity = '0.35';
+      });
+    });
+
+    const logos = deepQuery(root, '.logo');
+    if (logos.length) {
+      const note = document.createElement('div');
+      note.textContent = 'Sign in to use Sidekick';
+      note.style.cssText = 'margin-left:8px;font-size:11px;color:#ffb200;';
+      logos[0].appendChild(note);
+    }
+  };
+
+  // ----------------------------------------------------
+  // Approval workflow (localStorage)
+  // ----------------------------------------------------
   const getState = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
 
   const setStatus = (path, status, comments = '') => {
-    const s = getState();
-    s[path] = {
+    const state = getState();
+    state[path] = {
       status,
       comments,
       updated: new Date().toISOString(),
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   };
 
   const getStatus = (path) => {
-    const s = getState();
-    return s[path] || { status: 'draft' };
+    const state = getState();
+    if (state[path]) {
+      return state[path];
+    }
+    return { status: 'draft' };
   };
 
   const getPagePath = () => window.location.pathname;
@@ -135,154 +178,151 @@
     window.open(url, '_blank');
   };
 
-  // =====================================================
-  // APPLY ROLE CONTROL
-  // =====================================================
-
+  // ----------------------------------------------------
+  // Role rules & badge
+  // ----------------------------------------------------
   const applyRoleRules = (role, sk) => {
     const root = sk.shadowRoot;
+    if (!root) {
+      return;
+    }
 
-    const src = deepQuery(root, 'sk-menu-item.env-edit');
-    const prev = deepQuery(root, 'sk-menu-item.env-preview');
-    const live = deepQuery(root, 'sk-menu-item.env-live');
+    const previewItems = deepQuery(root, 'sk-menu-item.env-preview');
+    const liveItems = deepQuery(root, 'sk-menu-item.env-live');
 
     if (role === 'author') {
-      prev.forEach((b) => {
-        b.style.display = 'none';
+      previewItems.forEach((item) => {
+        const element = item;
+        element.style.display = 'none';
       });
-      live.forEach((b) => {
-        b.style.display = 'none';
+      liveItems.forEach((item) => {
+        const element = item;
+        element.style.display = 'none';
       });
     } else if (role === 'approver') {
-      live.forEach((b) => {
-        b.style.display = 'none';
+      liveItems.forEach((item) => {
+        const element = item;
+        element.style.display = 'none';
       });
     }
   };
 
   const injectRoleBadge = (role, sk) => {
+    const root = sk.shadowRoot;
+    if (!root) {
+      return;
+    }
+
+    const logos = deepQuery(root, '.logo');
+    if (!logos.length) {
+      return;
+    }
+
     const badge = document.createElement('div');
     badge.textContent = role.toUpperCase();
     badge.style.cssText = `
-      background: ${ROLE_COLORS[role] || '#666'};
-      color: #fff;
-      padding: 3px 8px;
-      border-radius: 4px;
-      margin-left: 8px;
-      font-size: 11px;
+      background:${ROLE_COLORS[role] || '#666'};
+      color:#fff;
+      padding:3px 8px;
+      border-radius:4px;
+      margin-left:8px;
+      font-size:11px;
     `;
 
-    const root = sk.shadowRoot;
-    const logo = deepQuery(root, '.logo');
-    if (logo.length) {
-      logo[0].appendChild(badge);
-    }
+    logos[0].appendChild(badge);
   };
 
-  // =====================================================
-  // SIDECICK INIT
-  // =====================================================
-
-  const initRoleEngine = () => {
-    const sk = document.querySelector('aem-sidekick');
-
-    if (!sk) {
-      document.addEventListener('sidekick-ready', initRoleEngine, { once: true });
+  // ----------------------------------------------------
+  // Workflow event wiring into Sidekick
+  // ----------------------------------------------------
+  const registerWorkflowEvents = (sk) => {
+    const root = sk.shadowRoot;
+    if (!root) {
       return;
     }
 
-    const load = () => {
-      const email = getSidekickUserEmail(sk);
+    root.addEventListener('custom:eds-edit', () => {
+      openEditorNotice();
+    });
 
-      if (!email) {
-        // user not signed in → disable SK fully
-        const root = sk.shadowRoot;
-        root.querySelectorAll('*').forEach((el) => {
-          el.style.pointerEvents = 'none';
-          el.style.opacity = '0.35';
-        });
+    root.addEventListener('custom:eds-preview', () => {
+      openPreview();
+    });
+
+    root.addEventListener('custom:eds-publish-live', () => {
+      const path = getPagePath();
+      const current = getStatus(path);
+      if (current.status !== 'approved') {
+        // eslint-disable-next-line no-alert
+        alert('Cannot publish — page must be APPROVED first.');
         return;
       }
+      publishLive();
+    });
 
-      getUserRole(email).then((role) => {
-        applyRoleRules(role, sk);
-        injectRoleBadge(role, sk);
-
-        new MutationObserver(() => {
-          applyRoleRules(role, sk);
-        }).observe(sk.shadowRoot, {
-          childList: true,
-          subtree: true,
-        });
-      });
-    };
-
-    setTimeout(load, 600);
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'getState') {
+        window.parent.postMessage(
+          {
+            sidekick: {
+              location: getPagePath(),
+              status: getStatus(getPagePath()),
+            },
+          },
+          '*',
+        );
+      }
+    });
   };
 
-  // =====================================================
-  // WORKFLOW EVENTS IN SIDECICK
-  // =====================================================
-
-  const registerWorkflowEvents = () => {
+  // ----------------------------------------------------
+  // Main bootstrap
+  // ----------------------------------------------------
+  const initSidekick = () => {
     const sk = document.querySelector('aem-sidekick');
     if (!sk) {
-      document.addEventListener('sidekick-ready', registerWorkflowEvents, { once: true });
+      document.addEventListener(
+        'sidekick-ready',
+        () => {
+          initSidekick();
+        },
+        { once: true },
+      );
       return;
     }
 
-    const attach = (root) => {
-      root.addEventListener('custom:eds-edit', openEditorNotice);
-
-      root.addEventListener('custom:eds-preview', openPreview);
-
-      root.addEventListener('custom:eds-publish-live', () => {
-        const path = getPagePath();
-        const status = getStatus(path);
-
-        if (status.status !== 'approved') {
-          // eslint-disable-next-line no-alert
-          alert('Cannot publish — Page must be APPROVED first.');
-          return;
-        }
-        publishLive();
-      });
-
-      window.addEventListener('message', (e) => {
-        if (e.data?.type === 'getState') {
-          window.parent.postMessage(
-            {
-              sidekick: {
-                location: getPagePath(),
-                status: getStatus(getPagePath()),
-              },
-            },
-            '*'
-          );
-        }
-      });
-    };
-
-    if (sk.shadowRoot) {
-      attach(sk.shadowRoot);
+    const email = getSidekickUserEmail(sk);
+    if (!email) {
+      disableSidekickUi(sk);
+      registerWorkflowEvents(sk);
+      return;
     }
-  };
 
-  // =====================================================
-  // BOOTSTRAP
-  // =====================================================
+    getUserRole(email).then((role) => {
+      applyRoleRules(role, sk);
+      injectRoleBadge(role, sk);
+      registerWorkflowEvents(sk);
 
-  const init = () => {
-    initRoleEngine();
-    registerWorkflowEvents();
+      const observer = new MutationObserver(() => {
+        applyRoleRules(role, sk);
+      });
+
+      observer.observe(sk.shadowRoot, {
+        childList: true,
+        subtree: true,
+      });
+    });
   };
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', initSidekick);
   } else {
-    init();
+    initSidekick();
   }
 
-  // Expose API (optional)
-  window.EDS_WORKFLOW = { setStatus, getStatus };
+  // expose workflow API for palettes
+  window.EDS_WORKFLOW = {
+    setStatus,
+    getStatus,
+  };
 })();
